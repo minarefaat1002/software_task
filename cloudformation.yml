@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Deployment of Rightshero project on Ubuntu EC2 with Docker'
+
+Parameters:
+  KeyPairName:
+    Description: 'Name of an existing EC2 KeyPair to enable SSH access'
+    Type: 'AWS::EC2::KeyPair::KeyName'
+    ConstraintDescription: 'Must be the name of an existing EC2 KeyPair.'
+  InstanceType:
+    Description: 'EC2 instance type'
+    Type: String
+    Default: 't3.micro'
+    AllowedValues:
+      - 't2.micro'
+      - 't3.micro'
+
+Resources:
+  EC2InstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'EC2AdminPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
+
+  EC2InstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  EC2SecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: 'Enable SSH, HTTP and HTTPS access'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  RightsheroEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: ami-0c1ac8a41498c1a9c
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroups:
+        - !Ref EC2SecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          sudo apt update -y
+          sudo apt install -y docker.io docker-compose git
+          sudo systemctl start docker
+          sudo systemctl enable docker
+          sudo git clone https://github.com/minarefaat1002/software_task /home/ubuntu/app
+          sudo cd /home/ubuntu/app
+          sudo docker-compose up -d 
+
+Outputs:
+  InstanceId:
+    Description: 'InstanceId of the newly created EC2 instance'
+    Value: !Ref RightsheroEC2Instance
+  PublicIP:
+    Description: 'Public IP address of the newly created EC2 instance'
+    Value: !GetAtt RightsheroEC2Instance.PublicIp
+  PublicDNS:
+    Description: 'Public DNS of the newly created EC2 instance'
+    Value: !GetAtt RightsheroEC2Instance.PublicDnsName

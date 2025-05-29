@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Category Selection</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* CSS Variables for easy theming */
+        :root {
+            --primary-color: #4a6fa5;
+            --hover-color: #e9f0f8;
+            --selected-color: #f0f7ff;
+            --border-color: #d1d5db;
+            --text-color: #333;
+            --light-text: #666;
+        }
+
+        /* Base styles */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        /* Header styling */
+        h1 {
+            color: var(--primary-color);
+            margin-bottom: 1.5rem;
+            font-weight: 600;
+        }
+
+        /* Container for nested categories */
+        .category-container {
+            margin-left: 1.5rem;
+            border-left: 2px solid var(--border-color);
+            padding-left: 1rem;
+        }
+
+        /* Individual category item */
+        .category-item {
+            margin: 0.5rem 0;
+            position: relative;
+        }
+
+        /* Content wrapper for each category */
+        .category-content {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        /* Hover and selection states */
+        .category-content:hover {
+            background-color: var(--hover-color);
+        }
+
+        .category-content.selected {
+            background-color: var(--selected-color);
+        }
+
+        /* Toggle button (chevron) styling */
+        .toggle-btn {
+            width: 24px;
+            height: 24px;
+            margin-right: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--primary-color);
+            transition: transform 0.2s ease;
+        }
+
+        /* Rotate chevron when expanded */
+        .category-item.expanded>.category-content>.toggle-btn {
+            transform: rotate(90deg);
+        }
+
+        /* Show/hide toggle based on children */
+        .category-item.has-children>.category-content>.toggle-btn {
+            visibility: visible;
+        }
+
+        .category-item.no-children>.category-content>.toggle-btn {
+            visibility: hidden;
+        }
+
+        /* Checkbox styling */
+        .checkbox {
+            width: 18px;
+            height: 18px;
+            margin-right: 0.75rem;
+            accent-color: var(--primary-color);
+            cursor: pointer;
+        }
+
+        /* Category name text */
+        .category-name {
+            flex-grow: 1;
+            font-size: 1rem;
+        }
+
+        /* Loading indicator */
+        .loading {
+            color: var(--light-text);
+            font-style: italic;
+            padding: 0.5rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Loading spinner animation */
+        .loading-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Error message styling */
+        .error-message {
+            color: #dc2626;
+            padding: 0.5rem 1rem;
+            background-color: #fee2e2;
+            border-radius: 4px;
+            margin: 0.5rem 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Category Selection</h1>
+    <!-- Root container where categories will be loaded -->
+    <div id="categories-root"></div>
+
+    <script>
+        /**
+         * Main controller for the category selection component
+         */
+        document.addEventListener('DOMContentLoaded', function () {
+            const rootContainer = document.getElementById('categories-root');
+
+            // Initialize by loading root categories
+            loadCategories(rootContainer, null);
+
+            /**
+             * Loads categories from the API and renders them
+             * @param {HTMLElement} container - The DOM element to render categories into
+             * @param {string|null} parentId - The parent category ID (null for root)
+             */
+            function loadCategories(container, parentId) {
+                // Create or update loading indicator
+                const loadingId = 'loading-' + (parentId || 'root');
+                let loadingElement = document.getElementById(loadingId);
+
+                if (!loadingElement) {
+                    loadingElement = createLoadingElement(loadingId);
+                    container.appendChild(loadingElement);
+                }
+
+                // Build API URL based on whether we're loading root or child categories
+                const apiUrl = buildCategoryApiUrl(parentId);
+
+                // Fetch categories from API
+                fetchCategories(apiUrl)
+                    .then(categories => {
+                        loadingElement.remove();
+
+                        if (categories.length === 0) {
+                            markParentAsChildless(container);
+                            return;
+                        }
+
+                        renderCategories(container, categories);
+                    })
+                    .catch(error => {
+                        handleLoadError(loadingElement, error);
+                    });
+            }
+
+            /**
+             * Creates a loading indicator element
+             * @param {string} id - The ID for the loading element
+             * @returns {HTMLElement} The created loading element
+             */
+            function createLoadingElement(id) {
+                const element = document.createElement('div');
+                element.id = id;
+                element.className = 'loading';
+                element.innerHTML = `
+                    <div class="loading-spinner"></div>
+                    <span>Loading categories...</span>
+                `;
+                return element;
+            }
+
+            /**
+             * Builds the appropriate API URL based on parentId
+             * @param {string|null} parentId - The parent category ID
+             * @returns {string} The complete API URL
+             */
+            function buildCategoryApiUrl(parentId) {
+                let url = 'http://localhost/api/v1/categories';
+                if (parentId) {
+                    url += `?parent_id=${parentId}`;
+                }
+                return url;
+            }
+
+            /**
+             * Fetches categories from the API
+             * @param {string} url - The API endpoint to fetch from
+             * @returns {Promise<Array>} Promise resolving to the category data
+             */
+            function fetchCategories(url) {
+                return fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to load categories');
+                        }
+                        return response.json();
+                    });
+            }
+
+            /**
+             * Marks a parent category as having no children
+             * @param {HTMLElement} container - The container element
+             */
+            function markParentAsChildless(container) {
+                const parentItem = container.closest('.category-item');
+                if (parentItem) {
+                    parentItem.classList.remove('has-children');
+                    parentItem.classList.add('no-children');
+                }
+            }
+
+            /**
+             * Renders categories into the specified container
+             * @param {HTMLElement} container - The DOM element to render into
+             * @param {Array} categories - The categories to render
+             */
+            function renderCategories(container, categories) {
+                // Remove existing children container if present
+                const existingContainer = container.querySelector('.category-container');
+                if (existingContainer) {
+                    existingContainer.remove();
+                }
+
+                // Create new container for categories
+                const categoryList = document.createElement('div');
+                categoryList.className = 'category-container';
+
+                // Create and append each category element
+                categories.forEach(category => {
+                    const categoryItem = createCategoryElement(category);
+                    categoryList.appendChild(categoryItem);
+                });
+
+                container.appendChild(categoryList);
+            }
+
+            /**
+             * Handles errors during category loading
+             * @param {HTMLElement} element - The loading element to convert to error
+             * @param {Error} error - The error that occurred
+             */
+            function handleLoadError(element, error) {
+                console.error('Error loading categories:', error);
+                element.className = 'error-message';
+                element.innerHTML = `
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>${error.message}</span>
+                `;
+            }
+
+            /**
+             * Creates a DOM element for a single category
+             * @param {Object} category - The category data
+             * @returns {HTMLElement} The created category element
+             */
+            function createCategoryElement(category) {
+                // Create container element
+                const categoryItem = document.createElement('div');
+                categoryItem.className = 'category-item has-children';
+                categoryItem.dataset.categoryId = category.id;
+
+                // Create content wrapper
+                const categoryContent = document.createElement('div');
+                categoryContent.className = 'category-content';
+
+                // Create toggle button (chevron)
+                const toggleBtn = createToggleButton();
+
+                // Create checkbox input
+                const checkbox = createCheckbox(category.id);
+
+                // Create category name display
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'category-name';
+                nameSpan.textContent = category.name;
+
+                // Assemble the content
+                categoryContent.appendChild(toggleBtn);
+                categoryContent.appendChild(checkbox);
+                categoryContent.appendChild(nameSpan);
+                categoryItem.appendChild(categoryContent);
+
+                // Set up event handlers
+                setupCategoryEventHandlers(categoryItem, categoryContent, toggleBtn, checkbox, category.id);
+
+                return categoryItem;
+            }
+
+            /**
+             * Creates a toggle button element
+             * @returns {HTMLElement} The created toggle button
+             */
+            function createToggleButton() {
+                const button = document.createElement('div');
+                button.className = 'toggle-btn';
+                button.innerHTML = '<i class="fas fa-chevron-right"></i>';
+                return button;
+            }
+
+            /**
+             * Creates a checkbox input element
+             * @param {string} categoryId - The category ID for the checkbox
+             * @returns {HTMLElement} The created checkbox
+             */
+            function createCheckbox(categoryId) {
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `category-${categoryId}`;
+                checkbox.className = 'checkbox';
+                checkbox.name = 'categories[]';
+                checkbox.value = categoryId;
+                return checkbox;
+            }
+
+            /**
+             * Sets up event handlers for a category element
+             * @param {HTMLElement} categoryItem - The main category container
+             * @param {HTMLElement} categoryContent - The content wrapper
+             * @param {HTMLElement} toggleBtn - The toggle button
+             * @param {HTMLElement} checkbox - The checkbox input
+             * @param {string} categoryId - The category ID
+             */
+            function setupCategoryEventHandlers(categoryItem, categoryContent, toggleBtn, checkbox, categoryId) {
+                // Toggle children when chevron is clicked
+                toggleBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    toggleCategoryExpansion(categoryItem, categoryId);
+                });
+
+                // Toggle checkbox when content is clicked (except chevron)
+                categoryContent.addEventListener('click', function (e) {
+                    if (e.target === checkbox || e.target === toggleBtn || e.target === toggleBtn.querySelector('i')) {
+                        return;
+                    }
+                    checkbox.checked = !checkbox.checked;
+                    updateSelectionStyle(categoryContent, checkbox.checked);
+                });
+
+                // Update style when checkbox is toggled directly
+                checkbox.addEventListener('change', function () {
+                    updateSelectionStyle(categoryContent, this.checked);
+                });
+            }
+
+            /**
+             * Toggles a category's expanded/collapsed state
+             * @param {HTMLElement} categoryItem - The category element
+             * @param {string} categoryId - The category ID to load children for
+             */
+            function toggleCategoryExpansion(categoryItem, categoryId) {
+                const isExpanded = categoryItem.classList.contains('expanded');
+
+                if (isExpanded) {
+                    // Collapse the category
+                    categoryItem.classList.remove('expanded');
+                    const childrenContainer = categoryItem.querySelector('.category-container');
+                    if (childrenContainer) {
+                        childrenContainer.remove();
+                    }
+                } else {
+                    // Expand the category
+                    categoryItem.classList.add('expanded');
+                    loadCategories(categoryItem, categoryId);
+                }
+            }
+
+            /**
+             * Updates the visual style based on checkbox state
+             * @param {HTMLElement} element - The element to style
+             * @param {boolean} isSelected - Whether the category is selected
+             */
+            function updateSelectionStyle(element, isSelected) {
+                if (isSelected) {
+                    element.classList.add('selected');
+                } else {
+                    element.classList.remove('selected');
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
